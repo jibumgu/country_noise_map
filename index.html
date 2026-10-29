@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="세계 각 나라의 랜드마크와 상징 색을 주파수로 표현한 인터랙티브 세계지도">
+<meta name="theme-color" content="#0b0a0e">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0a0e'/%3E%3Cg fill='%237aa7ff'%3E%3Crect x='5' y='13' width='3' height='6' rx='1.5'/%3E%3Crect x='10' y='8' width='3' height='16' rx='1.5'/%3E%3Crect x='15' y='4' width='3' height='24' rx='1.5'/%3E%3Crect x='20' y='9' width='3' height='14' rx='1.5'/%3E%3Crect x='25' y='12' width='3' height='8' rx='1.5'/%3E%3C/g%3E%3C/svg%3E">
+<title>Country Noise Map</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+<canvas id="ambient" aria-hidden="true"></canvas>
+<div id="tint" aria-hidden="true"></div>
+
+<div id="map" aria-label="세계지도">
+  <p id="status">지도를 불러오는 중…</p>
+</div>
+
+<div id="tip" role="tooltip"></div>
+
+<canvas id="wave" aria-hidden="true"></canvas>
+
+<header id="caption" aria-live="polite">
+  <p class="eyebrow" id="continent"></p>
+  <h1 id="name"></h1>
+  <p class="meta" id="sub"></p>
+</header>
+
+<p class="hint" id="hint">나라를 선택하세요</p>
+
+<noscript><p style="position:fixed;inset:0;display:grid;place-items:center;margin:0;color:#8a8394">이 페이지는 JavaScript가 필요합니다.</p></noscript>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="js/data/landmarks.js"></script>
+<script src="js/data/palettes.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

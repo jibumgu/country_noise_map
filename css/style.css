@@ -1,0 +1,357 @@
+/* Registered so the wave-view tint can glide between countries */
+@property --th { syntax: "<number>"; inherits: true; initial-value: 200; }
+@property --ts { syntax: "<percentage>"; inherits: true; initial-value: 40%; }
+
+:root {
+  --bg: #f4f1ec;
+  --fg: #3b3640;
+  --muted: #8f8995;
+  --grid: rgba(60, 50, 70, .07);
+  --lm: 84%;   /* map land lightness */
+  --line: #f4f1ec;
+  --sheen: rgba(255, 255, 255, .28);
+  --aa: .13;   /* strength of the background colour clouds */
+  --ease: cubic-bezier(.22, .61, .36, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0a0e; --fg: #ebe6f0; --muted: #8a8394;
+    --grid: rgba(255, 255, 255, .05);
+    --lm: 32%; --line: #0b0a0e;
+    --sheen: rgba(255, 255, 255, .1);
+    --aa: .3;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b0a0e; --fg: #ebe6f0; --muted: #8a8394;
+  --grid: rgba(255, 255, 255, .05);
+  --lm: 32%; --line: #0b0a0e;
+  --sheen: rgba(255, 255, 255, .1);
+  --aa: .3;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
+  transition: background-color 1.4s var(--ease), --th 1.4s var(--ease), --ts 1.4s var(--ease);
+}
+
+/* ---------- Map view ---------- */
+#map {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  transition: opacity 1.1s var(--ease), transform 1.4s var(--ease), visibility 1.4s;
+}
+#map {
+  perspective: 1600px;
+}
+#map svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  /* A tilt so the map reads as a raised, three-dimensional globe */
+  /* --px / --py follow the pointer (-1..1) so the map leans very slightly toward it */
+  /* --flat goes 0 -> 1 as the map is zoomed: the tilt fades out and the map grows to the full screen */
+  transform:
+    rotateX(calc((1 - var(--flat, 0)) * (14deg + var(--py, 0) * 2.5deg)))
+    rotateY(calc((1 - var(--flat, 0)) * var(--px, 0) * 3.5deg))
+    scale(calc(.97 + .03 * var(--flat, 0)));
+  transform-origin: 50% 60%;
+}
+#map svg { will-change: transform; }
+/* The side of the slab: a plain offset copy of the land, drawn beneath (no filters, so it stays cheap) */
+#map svg:active { cursor: grabbing; }
+/* The ocean and the outline around the map are fully transparent, so the background shows through */
+#map .sphere {
+  fill: none;
+  stroke: none;
+}
+#map .grat {
+  fill: none;
+  stroke: var(--grid);
+  stroke-width: .6;
+  vector-effect: non-scaling-stroke;
+}
+/* Land is drawn as continent plates; countries are transparent hit areas that catch hover */
+#map .plate {
+  fill: hsl(var(--h, 0) 38% var(--lm));
+  stroke: none;
+  transition: fill .6s var(--ease);
+}
+/* Country borders: thin plain lines between the countries of each continent plate */
+#map .borders {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: .7;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+path.country {
+  fill: transparent;
+  stroke: none;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+  outline: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    fill .6s var(--ease),
+    stroke .6s var(--ease),
+    transform .5s var(--ease),
+    opacity .5s var(--ease),
+    filter .5s var(--ease);
+  animation: land-in .9s var(--ease) backwards;
+  animation-delay: calc(var(--i, 0) * 4ms);
+}
+/* Hover: a soft sheen over the country, so it stands out inside the continent */
+path.country:focus-visible { fill: var(--sheen); }
+@media (hover: hover) {
+  path.country:hover { fill: var(--sheen); }
+}
+
+@keyframes land-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  path.country { animation: none; }
+}
+
+#tip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: .02em;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .08);
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  transition: opacity .25s var(--ease);
+}
+#tip.on { opacity: 1; }
+
+#status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: .04em;
+}
+
+/* ---------- Ambience behind the map: slow colour clouds and twinkling stars ---------- */
+#aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 1.2s var(--ease);
+}
+#aurora i {
+  position: absolute;
+  width: 70vmax;
+  height: 70vmax;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, hsla(var(--ah) 65% 55% / var(--aa)) 0%, transparent 62%);
+  will-change: transform;
+  animation: aurora-drift var(--dur) ease-in-out infinite alternate;
+}
+#aurora i:nth-child(1) { --ah: 212; --dur: 38s; left: -20vmax; top: -25vmax; }
+#aurora i:nth-child(2) { --ah: 286; --dur: 46s; right: -25vmax; top: 10vmax; }
+#aurora i:nth-child(3) { --ah: 172; --dur: 52s; left: 10vmax; bottom: -35vmax; }
+@keyframes aurora-drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(8vmax, 5vmax, 0) scale(1.18); }
+}
+#ambient {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  z-index: 0;
+  pointer-events: none;
+  transition: opacity 1.2s var(--ease);
+}
+body.wave #aurora,
+body.wave #ambient { opacity: 0; }
+
+/* The graticule breathes gently */
+#map .grat { animation: grat-pulse 8s ease-in-out infinite; }
+@keyframes grat-pulse {
+  0%, 100% { stroke-opacity: .5; }
+  50%      { stroke-opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #aurora i, #map .grat { animation: none; }
+}
+
+/* ---------- Wave view ---------- */
+#tint {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 75% 60% at 50% 55%,
+    hsl(var(--th) var(--ts) 16%) 0%, transparent 72%);
+  transition: opacity 1.4s var(--ease);
+}
+
+#wave {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1.2s var(--ease);
+}
+
+#caption {
+  position: fixed;
+  left: calc(env(safe-area-inset-left, 0px) + clamp(20px, 5vw, 64px));
+  top: calc(env(safe-area-inset-top, 0px) + clamp(20px, 5vh, 72px));
+  z-index: 3;
+  max-width: calc(100vw - clamp(40px, 10vw, 128px));
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 1.2s var(--ease), transform 1.2s var(--ease);
+  pointer-events: none;
+}
+.eyebrow {
+  margin: 0 0 10px;
+  font-size: 11px;
+  letter-spacing: .24em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+#name {
+  margin: 0;
+  font-size: clamp(32px, min(6.5vw, 12vh), 104px);
+  font-weight: 200;
+  letter-spacing: -.02em;
+  line-height: 1.02;
+}
+.meta {
+  margin: 14px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.hint {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + clamp(16px, 4vh, 40px));
+  transform: translateX(-50%);
+  z-index: 3;
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: .12em;
+  color: var(--muted);
+  transition: opacity 1s var(--ease);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ---------- Country names: they appear as the map is zoomed ---------- */
+#map .labels .label {
+  text-anchor: middle;
+  dominant-baseline: central;
+  fill: var(--fg);
+  font-size: calc(11px / var(--k, 1));
+  letter-spacing: .02em;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: calc(3px / var(--k, 1));
+  stroke-linejoin: round;
+  pointer-events: none;
+  /* needs both enough zoom overall and enough on-screen width for this particular country */
+  opacity: calc(clamp(0, (var(--w, 0) * var(--k, 1) - 70) / 50, 1) * clamp(0, (var(--k, 1) - 1.25) / 0.5, 1));
+}
+
+/* ---------- Idle tour: the country the camera is resting on ---------- */
+path.country.tour {
+  fill: var(--sheen);
+  stroke: var(--fg);
+  stroke-opacity: .55;
+  stroke-width: 1.2;
+}
+
+/* ---------- Click ripple ---------- */
+.ripple {
+  position: fixed;
+  z-index: 6;
+  width: 24px;
+  height: 24px;
+  border: 2px solid;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* ---------- Switching ---------- */
+body.wave {
+  background-color: #07060a;
+  --fg: #e9e4ee;
+  --muted: #8a8394;
+  cursor: pointer;
+}
+body.wave #tint { opacity: 1; }
+body.wave #map {
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(1.03);
+  pointer-events: none;
+}
+body.wave #wave { opacity: 1; }
+body.wave #caption { opacity: 1; transform: none; }
+body.wave .hint { opacity: .55; }
+body:not(.wave) .hint { opacity: 1; }
+
+/* ---------- Responsive: phones, tablets, small windows ---------- */
+.hint { max-width: 92vw; text-align: center; white-space: normal; }
+
+@media (max-width: 640px) {
+  .eyebrow { font-size: 10px; letter-spacing: .2em; }
+  .meta { font-size: 13px; margin-top: 10px; }
+  #tip { font-size: 13px; padding: 7px 12px; }
+}
+
+/* Short landscape screens (phones on their side): keep the caption compact so it clears the spectrum */
+@media (max-height: 480px) and (orientation: landscape) {
+  #caption { top: calc(env(safe-area-inset-top, 0px) + 12px); }
+  #name { font-size: clamp(26px, 9vh, 48px); }
+  .eyebrow { margin-bottom: 4px; }
+  .meta { display: none; }
+}
+
+/* Touch screens: no pointer-follow tilt */
+@media (pointer: coarse) {
+  #map svg { transform: none; will-change: auto; }
+}
