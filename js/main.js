@@ -59,6 +59,35 @@ function hueOf(color) {
   return (h * 60 + 360) % 360;
 }
 
+// Reads a palette colour (#rrggbb or "hsl(h s% l%)") as { h: 0..360, s: 0..1, l: 0..1 }
+function parseColor(color) {
+  if (color[0] !== "#") {
+    const m = color.match(/hsl\(\s*([\d.]+)\s+([\d.]+)%\s+([\d.]+)%/);
+    return m ? { h: parseFloat(m[1]), s: parseFloat(m[2]) / 100, l: parseFloat(m[3]) / 100 } : { h: 0, s: 0, l: 0.5 };
+  }
+  const n = parseInt(color.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  const l = (max + min) / 2;
+  if (d === 0) return { h: 0, s: 0, l };
+  const s = d / (1 - Math.abs(2 * l - 1));
+  let h;
+  if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return { h: (h * 60 + 360) % 360, s, l };
+}
+
+// On a light background, pale colours vanish. This deepens them so the spectrum stays readable:
+// whites become a warm grey, light colours are pulled down to a mid tone, dark colours stay dark.
+function toLightTheme(color) {
+  const { h, s, l } = parseColor(color);
+  if (s < 0.15) {
+    return l > 0.6 ? "hsl(30 9% 52%)" : `hsl(${h.toFixed(1)} ${(s * 100).toFixed(1)}% ${(Math.min(l, 0.4) * 100).toFixed(1)}%)`;
+  }
+  return `hsl(${h.toFixed(1)} ${Math.min(100, s * 105).toFixed(1)}% ${(Math.min(l, 0.5) * 100).toFixed(1)}%)`;
+}
+
 // The hue farthest from every colour in the palette, so the centre line never blends into the bars
 function contrastHue(palette, fallback) {
   const hues = palette.map(hueOf).filter(h => h !== null);
@@ -333,7 +362,6 @@ function init(topo, list) {
   // Ambient stars behind the map
   const ambient = document.getElementById("ambient");
   const actx = ambient.getContext("2d");
-  const darkMQ = window.matchMedia("(prefers-color-scheme: dark)");
   let stars = [];
   function makeStars() {
     const n = Math.round((cw * ch) / 9000);
@@ -363,6 +391,13 @@ function init(topo, list) {
   // Layers fade in when entered and fade out when left or replaced
   let layers = [];
   const rgba = (sig, a) => `hsla(${sig.hue.toFixed(1)} ${sig.sat.toFixed(1)}% 62% / ${a})`;
+  const isLight = () => document.documentElement.dataset.theme === "light";
+  // The country's palette, deepened when the page is in the light theme (cached per country)
+  function themedPalette(sig) {
+    if (!isLight()) return sig.palette;
+    return sig.paletteLight || (sig.paletteLight = sig.palette.map(toLightTheme));
+  }
+
   // A horizontal gradient that spreads the given colours evenly across the screen
   function paletteGradient(colors) {
     const g = ctx.createLinearGradient(0, 0, cw, 0);
@@ -429,8 +464,10 @@ function init(topo, list) {
     }
 
     // The country's symbolic colours spread across the screen; a reversed copy overlaps them
-    const sweep = paletteGradient(sig.palette);
-    const overlap = paletteGradient([...sig.palette].reverse());
+    const light = isLight();
+    const colors = themedPalette(sig);
+    const sweep = paletteGradient(colors);
+    const overlap = paletteGradient([...colors].reverse());
 
     // Upper half: crisp
     ctx.save();
@@ -443,7 +480,8 @@ function init(topo, list) {
 
     // Overlap: the reversed palette glows through the upper half where the two meet
     ctx.save();
-    ctx.globalCompositeOperation = "lighter";
+    // Light colours add up on a dark stage; on a light stage they multiply (deepen) instead
+    ctx.globalCompositeOperation = light ? "multiply" : "lighter";
     ctx.globalAlpha = opacity * 0.3;
     ctx.beginPath();
     ctx.rect(0, 0, cw, midY);
@@ -482,7 +520,7 @@ function init(topo, list) {
     // Centre line, fading toward the screen edges
     const edge = ctx.createLinearGradient(0, 0, cw, 0);
     // Each country's centre trace uses the hue farthest from its palette, so it always stands apart
-    const lineAt = a => `hsla(${sig.lineHue} 92% 74% / ${a})`;
+    const lineAt = a => `hsla(${sig.lineHue} ${light ? 80 : 92}% ${light ? 36 : 74}% / ${a})`;
     edge.addColorStop(0, lineAt(0));
     edge.addColorStop(0.14, lineAt(0.97));
     edge.addColorStop(0.86, lineAt(0.97));
@@ -521,7 +559,7 @@ function init(topo, list) {
 
   function drawAmbient(time) {
     actx.clearRect(0, 0, cw, ch);
-    actx.fillStyle = darkMQ.matches ? "rgb(232, 226, 244)" : "rgb(70, 60, 84)";
+    actx.fillStyle = document.documentElement.dataset.theme === "dark" ? "rgb(232, 226, 244)" : "rgb(70, 60, 84)";
     for (const s of stars) {
       const twinkle = 0.5 + 0.5 * Math.sin(time * s.tw + s.ph);
       actx.globalAlpha = 0.12 + 0.45 * twinkle;
@@ -595,7 +633,7 @@ function init(topo, list) {
   // ----- Click ripple: rings spread from the clicked point as the view changes -----
   function spawnRipple(origin, sig) {
     const reach = Math.hypot(window.innerWidth, window.innerHeight) / 12;
-    const color = sig.palette[0];
+    const color = themedPalette(sig)[0];
     [0, 170, 340].forEach(delay => {
       const ring = document.createElement("div");
       ring.className = "ripple";
@@ -706,6 +744,37 @@ function init(topo, list) {
   hintEl.textContent = HINT_MAP;
   requestAnimationFrame(frame);
 }
+
+// ----- Theme toggle: dark or light, remembered between visits -----
+(function setupTheme() {
+  const root = document.documentElement;
+  const button = document.getElementById("theme-toggle");
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  const BROWSER_BAR = { dark: "#0b0a0e", light: "#dccdb3" }; // matches --bg in the stylesheet
+
+  function apply(theme) {
+    root.dataset.theme = theme;
+    if (metaTheme) metaTheme.setAttribute("content", BROWSER_BAR[theme]);
+    const label = (theme === "dark" ? "라이트" : "다크") + " 모드로 전환";
+    button.setAttribute("aria-label", label);
+    button.title = label;
+  }
+  const saved = () => { try { return localStorage.getItem("theme"); } catch (e) { return null; } };
+
+  apply(root.dataset.theme === "light" ? "light" : "dark");
+
+  button.addEventListener("click", e => {
+    e.stopPropagation(); // otherwise the click would also close the spectrum view
+    const next = root.dataset.theme === "dark" ? "light" : "dark";
+    apply(next);
+    try { localStorage.setItem("theme", next); } catch (err) { /* storage unavailable: fine */ }
+  });
+
+  // Until the user picks a side, follow the system setting
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", e => {
+    if (!saved()) apply(e.matches ? "dark" : "light");
+  });
+})();
 
 Promise.all([
   fetch(ATLAS_URL).then(r => r.json()),

@@ -3,14 +3,14 @@
 @property --ts { syntax: "<percentage>"; inherits: true; initial-value: 40%; }
 
 :root {
-  --bg: #f4f1ec;
-  --fg: #3b3640;
-  --muted: #8f8995;
-  --grid: rgba(60, 50, 70, .07);
-  --lm: 84%;   /* map land lightness */
-  --line: #f4f1ec;
-  --sheen: rgba(255, 255, 255, .28);
-  --aa: .13;   /* strength of the background colour clouds */
+  --bg: #dccdb3;   /* light theme: a soft beige, easy on the eyes */
+  --fg: #3a2f24;
+  --muted: #7b6c5a;
+  --grid: rgba(80, 55, 30, .07);
+  --lm: 62%;   /* map land lightness */
+  --line: #dccdb3;
+  --sheen: rgba(255, 255, 255, .24);
+  --aa: .17;   /* strength of the background colour clouds */
   --ease: cubic-bezier(.22, .61, .36, 1);
 }
 @media (prefers-color-scheme: dark) {
@@ -221,6 +221,12 @@ body.wave #ambient { opacity: 0; }
   transition: opacity 1.4s var(--ease);
 }
 
+/* Light theme: the bloom behind the spectrum is a pale wash of the country's colour */
+:root[data-theme="light"] #tint {
+  background: radial-gradient(ellipse 75% 60% at 50% 55%,
+    hsl(var(--th) var(--ts) 90% / .75) 0%, transparent 72%);
+}
+
 #wave {
   position: fixed;
   inset: 0;
@@ -238,7 +244,7 @@ body.wave #ambient { opacity: 0; }
   left: calc(env(safe-area-inset-left, 0px) + clamp(20px, 5vw, 64px));
   top: calc(env(safe-area-inset-top, 0px) + clamp(20px, 5vh, 72px));
   z-index: 3;
-  max-width: calc(100vw - clamp(40px, 10vw, 128px));
+  max-width: calc(100vw - clamp(40px, 10vw, 128px) - 56px);
   opacity: 0;
   transform: translateY(8px);
   transition: opacity 1.2s var(--ease), transform 1.2s var(--ease);
@@ -316,13 +322,18 @@ path.country.tour {
 }
 
 /* ---------- Switching ---------- */
-body.wave {
+body.wave { cursor: pointer; }
+:root[data-theme="dark"] body.wave {
   background-color: #07060a;
   --fg: #e9e4ee;
   --muted: #8a8394;
-  cursor: pointer;
 }
 body.wave #tint { opacity: 1; }
+:root[data-theme="dark"] body.wave .theme-toggle {
+  background: rgba(255, 255, 255, .08);
+  border-color: rgba(255, 255, 255, .2);
+  color: #ebe6f0;
+}
 body.wave #map {
   opacity: 0;
   visibility: hidden;
@@ -355,3 +366,35 @@ body:not(.wave) .hint { opacity: 1; }
 @media (pointer: coarse) {
   #map svg { transform: none; will-change: auto; }
 }
+
+/* ---------- Theme toggle ---------- */
+.theme-toggle {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 16px);
+  right: calc(env(safe-area-inset-right, 0px) + 16px);
+  z-index: 7;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  color: var(--fg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+  opacity: .8;
+  transition: opacity .3s var(--ease), transform .3s var(--ease), background-color .6s var(--ease), color .6s var(--ease);
+}
+.theme-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; opacity: 1; }
+.theme-toggle svg { width: 20px; height: 20px; display: block; }
+/* Show the icon of the mode you would switch to */
+:root[data-theme="dark"] .theme-toggle .icon-moon,
+:root:not([data-theme]) .theme-toggle .icon-moon { display: none; }
+:root[data-theme="light"] .theme-toggle .icon-sun { display: none; }
+@media (hover: hover) {
+  .theme-toggle:hover { opacity: 1; transform: scale(1.06); }
+}
+.theme-toggle:active { transform: scale(.94); }

@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# Local tooling (preview launch configs contain paths from this machine)
+.claude/
+
+# Dependencies and logs, in case a build step is added later
+node_modules/
+*.log
