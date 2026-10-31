@@ -132,21 +132,25 @@ function buildSkyline(landmarks, rng) {
   if (landmarks.length === 0) {
     for (let k = 0; k < 8; k++) parts.push(fillerPart(0.6 + 0.6 * rng(), rng));
   } else {
-    for (const lm of landmarks) {
+    landmarks.forEach((lm, index) => {
       parts.push(fillerPart(0.4 + 0.4 * rng(), rng));
-      parts.push({ w: 1, height: lm.height });
-    }
+      parts.push({ w: 1, height: lm.height, item: index });
+    });
     parts.push(fillerPart(0.5 + 0.5 * rng(), rng));
   }
 
   const total = parts.reduce((s, p) => s + p.w, 0);
   const N = Math.round(total * SKY_RES);
   const heights = new Float32Array(N);
+  // For hover: which landmark (index into `items`) each sample belongs to, or -1 for plain city blocks
+  const owner = new Int16Array(N).fill(-1);
+  const items = landmarks.map(lm => ({ label: lm.label, product: lm.product }));
   let start = 0, k = 0;
   for (const p of parts) {
     const end = start + p.w;
     for (; k < N && k / SKY_RES < end; k++) {
       heights[k] = p.height(((k / SKY_RES) - start) / p.w);
+      if (p.item !== undefined && heights[k] > 0.01) owner[k] = p.item;
     }
     start = end;
   }
@@ -162,7 +166,7 @@ function buildSkyline(landmarks, rng) {
     const s = f * f * (3 - 2 * f);
     grain[i] = pts[a] * (1 - s) + pts[a + 1] * s;
   }
-  return { heights, grain, N, total };
+  return { heights, grain, owner, items, N, total };
 }
 
 function init(topo, list) {
@@ -450,6 +454,23 @@ function init(topo, list) {
     const k = 1 - Math.exp(-dt * SMOOTH_RATE);
     for (let i = 0; i < count; i++) layer.bars[i] += (target[i] - layer.bars[i]) * k;
 
+    // Which landmark does each bar belong to right now? (the skyline scrolls, so this is redone every frame)
+    const { owner, N: skyN } = sig.sky;
+    if (!layer.owners || layer.owners.length !== count) layer.owners = new Int16Array(count);
+    for (let i = 0; i < count; i++) {
+      const pos = u0 + (BAR_STEP / 2 + i * BAR_STEP) * unitsPerPx;
+      layer.owners[i] = owner[((Math.floor(pos * SKY_RES) % skyN) + skyN) % skyN];
+    }
+
+    // Is the pointer over a bar that belongs to a landmark? (-1 = no)
+    layer.hoverOwner = -1;
+    if (pointer.active && !layer.dying) {
+      const i = Math.floor(pointer.x / BAR_STEP);
+      if (i >= 0 && i < count && Math.abs(pointer.y - midY) <= Math.max(1, layer.bars[i]) + 8) {
+        layer.hoverOwner = layer.owners[i];
+      }
+    }
+
 
     ctx.save();
     ctx.globalAlpha = opacity;
@@ -489,6 +510,28 @@ function init(topo, list) {
     ctx.fillStyle = overlap;
     ctx.fill(barsPath);
     ctx.restore();
+
+    // Spotlight: while a landmark is hovered, everything else is veiled and its own bars get an outline
+    if (layer.hoverOwner >= 0) {
+      const veil = new Path2D(), lit = new Path2D();
+      for (let i = 0; i < count; i++) {
+        const x = BAR_STEP / 2 + i * BAR_STEP;
+        const half = Math.max(1, layer.bars[i]);
+        (layer.owners[i] === layer.hoverOwner ? lit : veil).roundRect(x - barW / 2, midY - half, barW, half * 2, barW / 2);
+      }
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, cw, midY);
+      ctx.clip();
+      ctx.globalAlpha = opacity * 0.6;
+      ctx.fillStyle = light ? "#dccdb3" : "#07060a"; // the stage colour, so the veil just fades the bars
+      ctx.fill(veil);
+      ctx.globalAlpha = opacity;
+      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = light ? "rgba(58, 47, 36, 0.9)" : "rgba(255, 255, 255, 0.9)";
+      ctx.stroke(lit);
+      ctx.restore();
+    }
 
     // Lower half: drawn offscreen, faded top to bottom with a mask, then blurred onto the screen
     offCtx.clearRect(0, 0, cw, ch);
@@ -550,6 +593,30 @@ function init(topo, list) {
   // Canvas work only while a spectrum is on screen (or fading out)
   let wasDrawing = false;
 
+  // Where the pointer is, so the spectrum can tell which landmark it rests on.
+  // A finger counts too while it is down (dragging across the spectrum reads out the landmarks).
+  const pointer = { x: 0, y: 0, active: false };
+  window.addEventListener("pointermove", e => { pointer.x = e.clientX; pointer.y = e.clientY; pointer.active = true; });
+  window.addEventListener("pointerup", e => { if (e.pointerType === "touch") pointer.active = false; });
+  window.addEventListener("pointercancel", () => { pointer.active = false; });
+  document.documentElement.addEventListener("pointerleave", () => { pointer.active = false; });
+
+  // The landmark's name beside the pointer while it rests on that landmark's bars
+  let landmarkTipOn = false;
+  function syncLandmarkTip(layer) {
+    const hit = layer && layer.hoverOwner >= 0 ? layer.sig.sky.items[layer.hoverOwner] : null;
+    if (!hit) {
+      if (landmarkTipOn) { tip.classList.remove("on"); landmarkTipOn = false; }
+      return;
+    }
+    const text = `${hit.label} · ${hit.product ? "특산물" : "랜드마크"}`;
+    if (tip.textContent !== text) tip.textContent = text;
+    const x = Math.min(pointer.x + 16, cw - tip.offsetWidth - 8); // keep it on screen
+    tip.style.transform = `translate(${Math.max(8, x)}px, ${pointer.y + 14}px)`;
+    tip.classList.add("on");
+    landmarkTipOn = true;
+  }
+
   // Pointer follow: the map and the stars lean a touch toward the cursor, with easing
   let targetX = 0, targetY = 0, parX = 0, parY = 0;
   window.addEventListener("pointermove", e => {
@@ -593,6 +660,7 @@ function init(topo, list) {
         const fadeOut = layer.dying ? 1 - easeOut(clamp01((now - layer.dying) / OUT_MS)) : 1;
         drawSpectrum(layer, fadeIn * fadeOut, time);
       }
+      if (body.classList.contains("wave")) syncLandmarkTip(layers.find(l => !l.dying));
       wasDrawing = layers.length > 0;
     }
     requestAnimationFrame(frame);
@@ -628,6 +696,8 @@ function init(topo, list) {
     for (const layer of layers) if (!layer.dying) layer.dying = now;
     body.classList.remove("wave");
     hintEl.textContent = HINT_MAP;
+    tip.classList.remove("on");
+    landmarkTipOn = false;
   }
 
   // ----- Click ripple: rings spread from the clicked point as the view changes -----
